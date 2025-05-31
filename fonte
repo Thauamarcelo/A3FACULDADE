@@ -1,0 +1,181 @@
+import pygame
+import random
+from collections import deque
+
+# Configurações da janela
+WIDTH, HEIGHT = 500, 500
+GRID_SIZE = 10
+CELL_SIZE = WIDTH // GRID_SIZE
+FPS = 4 
+
+# Cores
+CLEAR_COLOR = (245, 245, 245) #FUNDO
+OBSTACLE_COLOR = (30, 30, 30) #OBSTACULO
+ROBOT_COLOR = (25, 118, 210) #ROBO
+ENERGY_COLOR_5 = (237, 108, 2) #ENERGIA 5
+ENERGY_COLOR_10 = (211, 47, 47) #ENERGIA 10
+PATH_COLOR = (0, 200, 0) #CAMINHO
+PATH_DEAD_COLOR = (255, 0, 0) #CAMINHO MORTO
+START_COLOR = (0, 150, 136) #INICIO
+END_COLOR = (194, 24, 91) #FINAL
+
+def generate_maze(): #gera o labirinto
+    maze = [[0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)] 
+    num_obstacles = random.randint(15, 25)  # menos obstáculos para agilizar
+    obstacles = set()
+    while len(obstacles) < num_obstacles:# gera obstáculos (de 15 a 25)
+        x, y = random.randint(0, GRID_SIZE-1), random.randint(0, GRID_SIZE-1)
+        if (x, y) not in [(0, 0), (GRID_SIZE-1, GRID_SIZE-1)]: #(1,1) corresponde à posição (0,0) e (10,10) à posição (9,9). Pra fica mais certo na computação
+            obstacles.add((x, y))
+    for (x, y) in obstacles:
+        maze[x][y] = -1
+    return maze
+
+def place_energy(maze):
+    energy_positions = {}
+    positions = set()
+    # 5 posições recuperam 5 pontos
+    while len(positions) < 5:
+        x, y = random.randint(0, GRID_SIZE-1), random.randint(0, GRID_SIZE-1)
+        if maze[x][y] == 0 and (x, y) not in [(0,0),(GRID_SIZE-1, GRID_SIZE-1)]:
+            positions.add((x, y))
+            energy_positions[(x, y)] = 5
+    # 3 posições recuperam 10 pontos
+    while len(positions) < 8:
+        x, y = random.randint(0, GRID_SIZE-1), random.randint(0, GRID_SIZE-1)
+        if maze[x][y] == 0 and (x, y) not in [(0,0),(GRID_SIZE-1, GRID_SIZE-1)] and (x,y) not in positions:
+            positions.add((x, y))
+            energy_positions[(x, y)] = 10
+    return energy_positions
+
+def bfs(maze): #Ponto inicial e final
+    start = (0, 0)
+    end = (GRID_SIZE-1, GRID_SIZE-1)
+    queue = deque([start])
+    visited = {start}
+    parent = {start: None}
+    while queue:
+        x, y = queue.popleft()
+        if (x, y) == end:
+            break
+        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+            nx, ny = x+dx, y+dy
+            if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE:
+                if maze[nx][ny] != -1 and (nx, ny) not in visited:
+                    queue.append((nx, ny))
+                    visited.add((nx, ny))
+                    parent[(nx, ny)] = (x, y)
+    if end not in parent:
+        return []
+    path = []
+    cur = end
+    while cur:
+        path.append(cur)
+        cur = parent[cur]
+    path.reverse()
+    return path
+
+def draw_grid(screen, maze, energy_positions, path, robot_pos, energy, dead_paths): #Desenha o grid
+    for i in range(GRID_SIZE):
+        for j in range(GRID_SIZE):
+            rect = pygame.Rect(j*CELL_SIZE, i*CELL_SIZE, CELL_SIZE, CELL_SIZE)
+            if maze[i][j] == -1:
+                pygame.draw.rect(screen, OBSTACLE_COLOR, rect)
+            else:
+                pygame.draw.rect(screen, CLEAR_COLOR, rect)
+            if (i, j) == (0,0):
+                pygame.draw.rect(screen, START_COLOR, rect)
+            if (i, j) == (GRID_SIZE-1, GRID_SIZE-1):
+                pygame.draw.rect(screen, END_COLOR, rect)
+            if (i, j) in energy_positions:
+                color = ENERGY_COLOR_5 if energy_positions[(i,j)] == 5 else ENERGY_COLOR_10
+                pygame.draw.rect(screen, color, rect)
+            # Desenhar caminhos onde o robô morreu em vermelho
+            if (i, j) in dead_paths:
+                pygame.draw.rect(screen, PATH_DEAD_COLOR, rect)
+                
+        # Desenhar caminho atual em verde (contorno)
+        for (x, y) in path:
+            rect = pygame.Rect(y*CELL_SIZE, x*CELL_SIZE, CELL_SIZE, CELL_SIZE)
+            pygame.draw.rect(screen, PATH_COLOR, rect, 2)
+
+    # desenha o robô
+    rx, ry = robot_pos
+    robot_rect = pygame.Rect(ry*CELL_SIZE, rx*CELL_SIZE, CELL_SIZE, CELL_SIZE)
+    pygame.draw.rect(screen, ROBOT_COLOR, robot_rect)
+    # Mostrar energia na janela
+    font = pygame.font.SysFont(None, 24)
+    energy_text = font.render(f'Energia: {energy}', True, (0,0,0))
+    screen.blit(energy_text, (5, HEIGHT - 30))
+
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Labirinto do Fauno")
+    clock = pygame.time.Clock()
+
+    max_retries = 15
+    retries = 0
+    dead_paths = set()
+
+    while True:
+        maze = generate_maze()
+        energy_positions = place_energy(maze)
+        path = bfs(maze)
+        if not path:
+            retries += 1
+            if retries >= max_retries:
+                print("Não foi possível gerar labirinto com caminho válido após várias tentativas.")
+                break
+            continue
+        energy = 50
+        robot_pos = path[0]
+        path_index = 0
+        robot_dead = False
+
+        running = True
+        while running:
+            clock.tick(FPS)
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_r and robot_dead:
+                        running = False
+                        robot_dead = False
+                        dead_paths.clear()
+
+            screen.fill((200, 200, 200))
+            draw_grid(screen, maze, energy_positions, path[path_index:], robot_pos, energy, dead_paths)
+            pygame.display.flip()
+
+            if path_index < len(path):
+                if not robot_dead:
+                    robot_pos = path[path_index]
+                    if robot_pos in energy_positions:
+                        energy_gain = energy_positions.pop(robot_pos)
+                        energy = min(50, energy + energy_gain)
+                    energy -= 1
+                    path_index += 1
+                    if energy <= 0:
+                        print("O robô morreu por falta de energia!")
+                        robot_dead = True
+                        dead_paths.update(path[:path_index])
+            else:
+                print("O robô chegou ao destino!")
+                running = False
+
+        if not running and not robot_dead:
+            break
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+        pygame.display.flip()
+        clock.tick(10)
+
+if __name__ == "__main__":
+    main()
+
