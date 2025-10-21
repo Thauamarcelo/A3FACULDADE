@@ -1,7 +1,5 @@
 # A3FACULDADE
 TRABALHO A3 - IA
-Perfeito! Aqui vai um **README pequeno e direto** sobre o código:
-
 ---
 
 # **README — Labirinto com Robô**
